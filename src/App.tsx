@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
+import { GoogleGenAI, Type } from "@google/genai";
 import { 
   Sprout, 
   Thermometer, 
@@ -139,18 +140,18 @@ const ChatBot = () => {
     setIsTyping(true);
 
     try {
-      const response = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          message: input,
-          history: messages.map(m => ({ role: m.role, parts: [{ text: m.text }] }))
-        }),
+      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
+      const chat = ai.chats.create({
+        model: "gemini-3-flash-preview",
+        config: {
+          systemInstruction: "You are a helpful agricultural expert assistant. You help farmers with their queries about crops, soil, pests, and general farming practices. Keep your answers concise and practical.",
+        },
+        history: messages.map(m => ({ role: m.role, parts: [{ text: m.text }] })),
       });
-      
-      const data = await response.json();
-      if (data.text) {
-        setMessages(prev => [...prev, { role: 'model', text: data.text }]);
+
+      const result = await chat.sendMessage({ message: input });
+      if (result.text) {
+        setMessages(prev => [...prev, { role: 'model', text: result.text }]);
       }
     } catch (error) {
       console.error("Chat error:", error);
@@ -293,13 +294,72 @@ export default function App() {
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch('/api/recommend', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData),
+      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
+      
+      const prompt = `Act as an expert agricultural scientist. Based on the following soil and environmental data, recommend the most suitable crops.
+      
+      Data:
+      - Nitrogen (N): ${formData.n}
+      - Phosphorus (P): ${formData.p}
+      - Potassium (K): ${formData.k}
+      - Temperature: ${formData.temperature}°C
+      - Humidity: ${formData.humidity}%
+      - pH level: ${formData.ph}
+      - Rainfall: ${formData.rainfall}mm
+      ${formData.location ? `- Location: ${formData.location}` : ""}
+
+      Provide a detailed recommendation in JSON format including:
+      1. recommendedCrop: The best crop.
+      2. confidence: Confidence score (0-100).
+      3. alternatives: Top 3 alternative crops with their suitability scores.
+      4. reasoning: Brief explanation of why these crops were chosen based on the input factors.
+      5. featureImportance: An object showing how much each factor (N, P, K, Temp, Humidity, pH, Rainfall) influenced the decision (total 100%).
+      6. tips: 3-4 specific farming tips for the recommended crop.`;
+
+      const response = await ai.models.generateContent({
+        model: "gemini-3-flash-preview",
+        contents: prompt,
+        config: {
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              recommendedCrop: { type: Type.STRING },
+              confidence: { type: Type.NUMBER },
+              alternatives: {
+                type: Type.ARRAY,
+                items: {
+                  type: Type.OBJECT,
+                  properties: {
+                    name: { type: Type.STRING },
+                    suitability: { type: Type.NUMBER }
+                  }
+                }
+              },
+              reasoning: { type: Type.STRING },
+              featureImportance: {
+                type: Type.OBJECT,
+                properties: {
+                  N: { type: Type.NUMBER },
+                  P: { type: Type.NUMBER },
+                  K: { type: Type.NUMBER },
+                  Temperature: { type: Type.NUMBER },
+                  Humidity: { type: Type.NUMBER },
+                  pH: { type: Type.NUMBER },
+                  Rainfall: { type: Type.NUMBER }
+                }
+              },
+              tips: {
+                type: Type.ARRAY,
+                items: { type: Type.STRING }
+              }
+            },
+            required: ["recommendedCrop", "confidence", "alternatives", "reasoning", "featureImportance", "tips"]
+          }
+        }
       });
-      if (!response.ok) throw new Error('Failed to fetch recommendation');
-      const data = await response.json();
+
+      const data = JSON.parse(response.text || "{}");
       setRecommendation(data);
     } catch (err) {
       setError('Something went wrong. Please try again.');
