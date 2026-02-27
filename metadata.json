@@ -1,0 +1,5 @@
+{
+  "name": "Smart Farming Assistant",
+  "description": "AI-powered crop recommendation system using soil nutrients and weather data to help farmers optimize yields.",
+  "requestFramePermissions": ["geolocation"]
+}
